@@ -1,14 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import DataGridDl, {
-  GridCell,
-  GridCellKind,
-  GridColumn,
-  Item,
-  EditableGridCell,
-} from 'glide-data-grid';
+import React, { useCallback, useEffect, useState } from 'react';
+import { FixedSizeList as List } from 'react-window';
 import axios from 'axios';
 import { WorkOrderRow, SheetColumn } from '../../../shared/src/types';
-import 'glide-data-grid/dist/index.css';
 
 interface GridProps {
   viewId: string;
@@ -20,6 +13,7 @@ interface GridProps {
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const ROW_HEIGHT = 30;
 
 export default function Grid({
   viewId,
@@ -34,9 +28,6 @@ export default function Grid({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingCell, setEditingCell] = useState<{ rowIndex: number; colKey: string } | null>(null);
-  const [savingCell, setSavingCell] = useState<boolean>(false);
-  const gridRef = useRef<DataGridDl>(null);
-  const cacheRef = useRef<Map<number, WorkOrderRow[]>>(new Map());
 
   // Fetch row window
   const fetchRowWindow = useCallback(
@@ -52,7 +43,6 @@ export default function Grid({
         const { rows: newRows, total_count } = res.data;
         setRows(newRows);
         setTotalCount(total_count);
-        cacheRef.current.set(start, newRows);
       } catch (err) {
         console.error('Fetch error:', err);
         setError(err instanceof Error ? err.message : 'Failed to load rows');
@@ -68,257 +58,215 @@ export default function Grid({
     fetchRowWindow(windowStart);
   }, [viewId, windowStart, fetchRowWindow]);
 
-  // Build GridColumns from SheetColumns
-  const visibleColumns = columns.filter((c) => c.is_visible);
-  const gridColumns: GridColumn[] = visibleColumns.map((col) => ({
-    title: col.name,
-    width: col.width,
-    id: col.column_key,
-  }));
+  // Format cell value for display
+  const formatValue = (value: any, column: SheetColumn): string => {
+    if (value === null || value === undefined) return '';
 
-  // Handle cell fetch
-  const handleGetCells = useCallback(
-    (selections: Item[]): GridCell[] => {
-      return selections.map(([colIndex, rowIndex]) => {
-        const column = visibleColumns[colIndex];
-        const rowData = rows[rowIndex];
+    if (column.data_type === 'currency') {
+      return `$${(value as number).toLocaleString()}`;
+    }
 
-        if (!column || !rowData) {
-          return {
-            kind: GridCellKind.Loading,
-            allowOverlay: false,
-          };
-        }
+    if (column.data_type === 'date') {
+      try {
+        return new Date(value).toLocaleDateString();
+      } catch {
+        return String(value);
+      }
+    }
 
-        const columnKey = column.column_key;
-        const value = (rowData as any)[columnKey];
-        const isFormula = column.formula_mode && column.formula_mode !== null;
-        const isSaving = editingCell?.rowIndex === rowIndex && editingCell?.colKey === columnKey && savingCell;
+    if (column.data_type === 'checkbox') {
+      return value ? '✓' : '◯';
+    }
 
-        if (value === null || value === undefined) {
-          return {
-            kind: GridCellKind.Text,
-            data: '',
-            allowOverlay: !isFormula,
-            readonly: isFormula || column.data_type === 'formula',
-          };
-        }
-
-        if (column.data_type === 'currency' || column.data_type === 'formula') {
-          return {
-            kind: GridCellKind.Number,
-            data: value as number,
-            displayData: `$${(value as number).toLocaleString()}`,
-            allowOverlay: !isFormula,
-            readonly: isFormula,
-          };
-        }
-
-        if (column.data_type === 'date') {
-          return {
-            kind: GridCellKind.Text,
-            data: value as string,
-            allowOverlay: true,
-            readonly: isFormula,
-          };
-        }
-
-        if (column.data_type === 'checkbox') {
-          return {
-            kind: GridCellKind.Boolean,
-            data: value as boolean,
-            allowOverlay: true,
-            readonly: isFormula,
-          };
-        }
-
-        if (column.data_type === 'number') {
-          return {
-            kind: GridCellKind.Number,
-            data: value as number,
-            allowOverlay: true,
-            readonly: isFormula,
-          };
-        }
-
-        // Default: text
-        return {
-          kind: GridCellKind.Text,
-          data: String(value),
-          allowOverlay: true,
-          readonly: isFormula,
-        };
-      });
-    },
-    [visibleColumns, rows, editingCell, savingCell]
-  );
+    return String(value);
+  };
 
   // Handle cell edit
-  const handleCellEdited = useCallback(
-    async (cell: Item, newValue: EditableGridCell) => {
-      const [colIndex, rowIndex] = cell;
-      const column = visibleColumns[colIndex];
+  const handleCellEdit = useCallback(
+    async (rowIndex: number, column: SheetColumn, newValue: string) => {
       const rowData = rows[rowIndex];
+      if (!rowData || !sheetId) return;
 
-      if (!column || !rowData || !sheetId) return;
-
-      // Optimistic update: update display immediately
+      // Optimistic update
       const updatedRows = [...rows];
-      (updatedRows[rowIndex] as any)[column.column_key] = newValue.data;
+      (updatedRows[rowIndex] as any)[column.column_key] = newValue;
       setRows(updatedRows);
 
-      // Start saving
-      setSavingCell(true);
       setEditingCell({ rowIndex, colKey: column.column_key });
 
       try {
-        // Send update to server
         await axios.patch(
           `${API_BASE}/sheets/${sheetId}/rows/${rowData.id}/cells/${column.column_key}`,
           {
-            value: newValue.data,
+            value: newValue,
             expected_version: rowData.row_version,
           }
         );
 
-        // Success: clear saving state
-        setSavingCell(false);
         setEditingCell(null);
-
-        // Optionally refetch this row to get updated data from server
       } catch (error: any) {
-        console.error('Edit error:', error);
-
-        // Conflict handling: revert and show conflict modal
         if (error.response?.status === 409) {
-          const conflictData = error.response.data;
-          const currentRow = conflictData.current_row;
-
-          // Revert display
+          const currentRow = error.response.data.current_row;
           const revertedRows = [...rows];
           revertedRows[rowIndex] = currentRow;
           setRows(revertedRows);
 
-          setSavingCell(false);
-          setEditingCell(null);
-
-          // Show conflict modal
           const choice = confirm(
-            `This row was changed by someone else. Current value: ${(currentRow as any)[column.column_key]}\n\nUse the latest version?`
+            `This row was changed. Current: ${(currentRow as any)[column.column_key]}\n\nUse latest?`
           );
 
           if (!choice) {
-            // Keep mine - revert back to what user typed
             const keepMineRows = [...rows];
-            (keepMineRows[rowIndex] as any)[column.column_key] = newValue.data;
+            (keepMineRows[rowIndex] as any)[column.column_key] = newValue;
             setRows(keepMineRows);
           }
         } else {
-          // Other error: revert and show error
-          setError('Failed to save edit');
+          setError('Failed to save');
           const revertedRows = [...rows];
           revertedRows[rowIndex] = rowData;
           setRows(revertedRows);
-          setSavingCell(false);
-          setEditingCell(null);
         }
+        setEditingCell(null);
       }
     },
-    [visibleColumns, rows, sheetId]
+    [rows, sheetId]
   );
 
+  const visibleColumns = columns.filter((c) => c.is_visible);
+  const colWidths = visibleColumns.map((c) => c.width);
+  const totalWidth = colWidths.reduce((a, b) => a + b, 0);
+
+  const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => {
+    const row = rows[index];
+    if (!row) return <div style={style} />;
+
+    return (
+      <div
+        style={{
+          ...style,
+          display: 'flex',
+          borderBottom: '1px solid #e4e7ec',
+          backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb',
+          cursor: 'pointer',
+        }}
+        onClick={() => onRowSelect?.(row)}
+      >
+        {visibleColumns.map((col, colIdx) => (
+          <div
+            key={col.column_key}
+            style={{
+              width: colWidths[colIdx],
+              padding: '6px 8px',
+              display: 'flex',
+              alignItems: 'center',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: '13px',
+              borderRight: '1px solid #e4e7ec',
+              backgroundColor:
+                editingCell?.rowIndex === index && editingCell?.colKey === col.column_key
+                  ? '#dbeafe'
+                  : 'transparent',
+              color: col.formula_mode ? '#667085' : '#1f2937',
+            }}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              if (!col.formula_mode) {
+                const newValue = prompt(`Edit ${col.name}:`, formatValue((row as any)[col.column_key], col));
+                if (newValue !== null) {
+                  handleCellEdit(index, col, newValue);
+                }
+              }
+            }}
+          >
+            {formatValue((row as any)[col.column_key], col)}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
-    <div
-      style={{
-        width: '100%',
-        height: '100%',
-        position: 'relative',
-        background: 'white',
-      }}
-    >
+    <div style={{ width: '100%', height: '100%', position: 'relative', background: 'white' }}>
       {error && (
         <div
           style={{
-            padding: '16px',
+            padding: '12px',
             background: '#fee2e2',
             color: '#991b1b',
-            borderBottom: '1px solid #fecaca',
             fontSize: '13px',
+            display: 'flex',
+            justifyContent: 'space-between',
           }}
         >
           {error}
-          <button
-            onClick={() => setError(null)}
-            style={{
-              marginLeft: '12px',
-              background: 'transparent',
-              border: 'none',
-              color: '#991b1b',
-              cursor: 'pointer',
-              textDecoration: 'underline',
-            }}
-          >
-            Dismiss
+          <button onClick={() => setError(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
+            ✕
           </button>
         </div>
       )}
 
       {loading && rows.length === 0 && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: '#667085',
-          }}
-        >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#667085' }}>
           Loading...
         </div>
       )}
 
       {!loading && rows.length === 0 && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: '#667085',
-          }}
-        >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#667085' }}>
           No rows found
         </div>
       )}
 
+      {/* Column headers */}
       {rows.length > 0 && (
-        <DataGridDl
-          ref={gridRef}
-          columns={gridColumns}
-          rows={totalCount}
-          getCellContent={handleGetCells}
-          onCellEdited={handleCellEdited}
-          onRowAppended={() => {}}
-          onVisibleRegionChanged={(region) => {
-            const newStart = Math.max(0, region.y * 200);
-            if (newStart !== windowStart) {
-              onWindowStartChange(newStart);
-            }
-          }}
-          onGridSelectionChange={(selection) => {
-            if (selection.current && onRowSelect) {
-              const rowIndex = selection.current.cell[1];
-              if (rows[rowIndex]) {
-                onRowSelect(rows[rowIndex]);
+        <>
+          <div
+            style={{
+              display: 'flex',
+              borderBottom: '2px solid #d1d5db',
+              background: '#f3f4f6',
+              position: 'sticky',
+              top: 0,
+              zIndex: 10,
+            }}
+          >
+            {visibleColumns.map((col, idx) => (
+              <div
+                key={col.column_key}
+                style={{
+                  width: colWidths[idx],
+                  padding: '8px',
+                  fontWeight: 600,
+                  fontSize: '12px',
+                  color: '#1f2937',
+                  borderRight: '1px solid #e4e7ec',
+                  textOverflow: 'ellipsis',
+                  overflow: 'hidden',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {col.name} {col.formula_mode && '📐'}
+              </div>
+            ))}
+          </div>
+
+          <List
+            height={window.innerHeight - 280}
+            itemCount={totalCount}
+            itemSize={ROW_HEIGHT}
+            width="100%"
+            onScroll={({ scrollOffset }) => {
+              const newStart = Math.max(0, Math.floor(scrollOffset / ROW_HEIGHT / 10) * 10);
+              if (newStart !== windowStart) {
+                onWindowStartChange(newStart);
               }
-            }
-          }}
-          rowMarkers="both"
-          showSearch={false}
-          freezeColumns={1}
-          smoothScrollX={false}
-          smoothScrollY={true}
-        />
+            }}
+          >
+            {Row}
+          </List>
+        </>
       )}
     </div>
   );

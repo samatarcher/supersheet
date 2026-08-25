@@ -12,9 +12,8 @@
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "glide-data-grid": "^6.0.0",
-    "axios": "^1.6.0",
-    "zustand": "^4.4.0"
+    "react-window": "^1.8.10",
+    "axios": "^1.6.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",
