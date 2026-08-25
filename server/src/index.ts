@@ -145,9 +145,29 @@ async function initializeDatabase() {
       console.log('Creating demo sheet...');
       const sheetId = uuidv4();
       await pool.query('INSERT INTO sheets (id, organization_id, name) VALUES ($1, $2, $3)', [sheetId, orgId, 'Work Orders']);
+
+      // Add default columns
+      const columns = [
+        { key: 'work_order_id', name: 'Work Order ID', type: 'text' },
+        { key: 'title', name: 'Title', type: 'text' },
+        { key: 'status', name: 'Status', type: 'text' },
+        { key: 'priority', name: 'Priority', type: 'text' },
+        { key: 'budget', name: 'Budget', type: 'number' },
+        { key: 'actual_cost', name: 'Actual Cost', type: 'number' },
+        { key: 'submitted_date', name: 'Submitted', type: 'date' },
+        { key: 'due_date', name: 'Due Date', type: 'date' },
+      ];
+
+      for (const [i, col] of columns.entries()) {
+        await pool.query(
+          'INSERT INTO sheet_columns (id, sheet_id, column_key, name, data_type, ordinal) VALUES ($1, $2, $3, $4, $5, $6)',
+          [uuidv4(), sheetId, col.key, col.name, col.type, i]
+        );
+      }
+
       const viewId = uuidv4();
       await pool.query('INSERT INTO sheet_views (id, sheet_id, name) VALUES ($1, $2, $3)', [viewId, sheetId, 'All Work Orders']);
-      console.log('✓ Demo sheet created');
+      console.log('✓ Demo sheet created with columns');
     }
   } catch (err) {
     console.error('Database initialization error:', err);
