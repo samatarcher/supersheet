@@ -26,7 +26,7 @@ await app.register(cors, {
 await app.register(websocket);
 
 // Static files (serve built web app)
-const webDistPath = path.join(process.cwd(), 'web/dist');
+const webDistPath = path.join(process.cwd(), '../web/dist');
 try {
   await app.register(staticPlugin, {
     root: webDistPath,
