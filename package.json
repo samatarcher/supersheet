@@ -13,9 +13,8 @@
     "db:reset": "npm run reset --prefix db",
     "setup": "npm install && npm install --prefix web && npm install --prefix server && npm install --prefix db && npm run db:migrate && npm run db:seed",
     "type-check": "npm run type-check --prefix web && npm run type-check --prefix server",
-    "start": "node server/dist/index.js",
-    "postinstall": "npm install --prefix server && npm install --prefix web && npm install --prefix db",
-    "prestart": "npm run build"
+    "start": "npm run start --prefix server",
+    "postinstall": "npm install --prefix server && npm install --prefix web && npm install --prefix db"
   },
   "devDependencies": {
     "concurrently": "^8.2.0"
