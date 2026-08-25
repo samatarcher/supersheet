@@ -1,0 +1,20 @@
+{
+  "name": "supersheet",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Enterprise scale sheet prototype",
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix web\" \"npm run dev --prefix server\"",
+    "dev:web": "npm run dev --prefix web",
+    "dev:server": "npm run dev --prefix server",
+    "build": "npm run build --prefix web && npm run build --prefix server",
+    "db:migrate": "npm run migrate --prefix db",
+    "db:seed": "npm run seed --prefix db",
+    "db:reset": "npm run reset --prefix db",
+    "setup": "npm install && npm install --prefix web && npm install --prefix server && npm install --prefix db && npm run db:migrate && npm run db:seed",
+    "type-check": "npm run type-check --prefix web && npm run type-check --prefix server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
