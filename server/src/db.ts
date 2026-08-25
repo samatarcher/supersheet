@@ -1,9 +1,12 @@
-import { Pool, QueryResult } from 'pg';
-import { WorkOrderRow, SheetView, QueryResult as CustomQueryResult } from '../../shared/src/types';
+import { Pool } from 'pg';
+import { WorkOrderRow, SheetView } from '../../shared/src/types';
 
 let pool: Pool;
 
-export function initDb(connectionString: string) {
+export function initDb(connectionString: string | undefined) {
+  if (!connectionString) {
+    throw new Error('DATABASE_URL is required');
+  }
   pool = new Pool({
     connectionString,
     max: 20,
@@ -11,7 +14,7 @@ export function initDb(connectionString: string) {
     connectionTimeoutMillis: 2000,
   });
 
-  pool.on('error', (err) => {
+  pool.on('error', (err: Error) => {
     console.error('Unexpected error on idle client', err);
   });
 
@@ -116,7 +119,7 @@ export async function updateCell(
   columnKey: string,
   value: any,
   expectedVersion: number
-): Promise<{ success: boolean; newVersion?: number; conflict?: boolean; currentRow?: WorkOrderRow }> {
+): Promise<{ success: boolean; newVersion?: number; conflict?: boolean; currentRow?: WorkOrderRow; currentVersion?: number }> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
