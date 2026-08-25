@@ -55,6 +55,12 @@ app.get('/api/health', async (request, reply) => {
 });
 
 // === Sheet and View Endpoints ===
+app.get('/api/sheets', async (request, reply) => {
+  const pool = await db.getPool();
+  const res = await pool.query('SELECT id, name FROM sheets LIMIT 10');
+  return res.rows;
+});
+
 app.get<{ Params: { sheet_id: string } }>('/api/sheets/:sheet_id', async (request, reply) => {
   const { sheet_id } = request.params;
   const sheet = await db.getSheet(sheet_id);
