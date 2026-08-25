@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { WorkOrderRow } from '../../../shared/src/types';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 interface SearchProps {
   sheetId: string;

@@ -12,7 +12,7 @@ interface GridProps {
   onRowSelect?: (row: WorkOrderRow) => void;
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 const ROW_HEIGHT = 30;
 
 export default function Grid({
