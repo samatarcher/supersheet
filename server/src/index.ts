@@ -1,10 +1,12 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
+import staticPlugin from '@fastify/static';
 import { initDb, closeDb } from './db';
 import * as db from './db';
 import { v4 as uuidv4 } from 'uuid';
 import * as dotenv from 'dotenv';
+import * as path from 'path';
 
 dotenv.config();
 
@@ -28,6 +30,17 @@ await app.register(cors, {
 
 // WebSockets
 await app.register(websocket);
+
+// Static files (serve built web app)
+const webDistPath = path.join(__dirname, '../../web/dist');
+try {
+  await app.register(staticPlugin, {
+    root: webDistPath,
+    prefix: '/',
+  });
+} catch (err) {
+  console.log('Web dist directory not found yet (will be created on first build)');
+}
 
 // Initialize database
 const dbUrl = process.env.DATABASE_URL;
