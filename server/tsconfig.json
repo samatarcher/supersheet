@@ -1,8 +1,7 @@
 {
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
-    "module": "commonjs",
+    "module": "esnext",
     "target": "ES2020",
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -11,6 +10,6 @@
     "noUnusedParameters": false,
     "moduleResolution": "node"
   },
-  "include": ["src"],
+  "include": ["src", "../shared/src"],
   "exclude": ["node_modules", "dist"]
 }
