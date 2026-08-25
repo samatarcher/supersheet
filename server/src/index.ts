@@ -46,6 +46,32 @@ if (!dbUrl) {
 initDb(dbUrl);
 console.log('Database connected');
 
+// Auto-initialize demo sheet if none exist
+async function initializeDemoSheet() {
+  try {
+    const pool = await db.getPool();
+    const sheets = await pool.query('SELECT id FROM sheets LIMIT 1');
+    if (sheets.rows.length === 0) {
+      console.log('Creating demo sheet...');
+      const sheetId = uuidv4();
+      await pool.query(
+        'INSERT INTO sheets (id, name, org_id) VALUES ($1, $2, $3)',
+        [sheetId, 'Work Orders', 'demo-org']
+      );
+      const viewId = uuidv4();
+      await pool.query(
+        'INSERT INTO sheet_views (id, sheet_id, name, result_count) VALUES ($1, $2, $3, $4)',
+        [viewId, sheetId, 'All Work Orders', 0]
+      );
+      console.log('✓ Demo sheet created');
+    }
+  } catch (err) {
+    console.error('Failed to initialize demo sheet:', err);
+  }
+}
+
+await initializeDemoSheet();
+
 // Track WebSocket connections for broadcasting
 const connections = new Map<string, any>();
 
