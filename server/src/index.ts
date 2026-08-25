@@ -46,31 +46,115 @@ if (!dbUrl) {
 initDb(dbUrl);
 console.log('Database connected');
 
-// Auto-initialize demo sheet if none exist
-async function initializeDemoSheet() {
+// Auto-initialize database schema if needed
+async function initializeDatabase() {
   try {
     const pool = await db.getPool();
+
+    // Create minimal required tables
+    const initSQL = `
+      CREATE TABLE IF NOT EXISTS organizations (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS sheets (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        sheet_class VARCHAR(50) NOT NULL DEFAULT 'standard',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS sheet_views (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        sheet_id UUID NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        result_count BIGINT DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS work_order_rows (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        sheet_id UUID NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
+        row_number BIGINT NOT NULL,
+        work_order_id VARCHAR(20) NOT NULL,
+        title VARCHAR(500),
+        status VARCHAR(50),
+        priority VARCHAR(50),
+        budget DECIMAL(12, 2),
+        actual_cost DECIMAL(12, 2),
+        submitted_date DATE,
+        due_date DATE,
+        completed_date DATE,
+        row_version INT DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS view_rows (
+        view_id UUID NOT NULL REFERENCES sheet_views(id) ON DELETE CASCADE,
+        row_id UUID NOT NULL REFERENCES work_order_rows(id) ON DELETE CASCADE,
+        logical_position BIGINT NOT NULL,
+        PRIMARY KEY (view_id, row_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS activity_events (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        sheet_id UUID NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
+        row_id UUID REFERENCES work_order_rows(id) ON DELETE SET NULL,
+        event_type VARCHAR(50),
+        actor VARCHAR(255),
+        changes_json JSONB,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS outbox_events (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        sheet_id UUID NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
+        event_type VARCHAR(50),
+        payload_json JSONB,
+        processed BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS row_comments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        row_id UUID NOT NULL REFERENCES work_order_rows(id) ON DELETE CASCADE,
+        author VARCHAR(255),
+        text TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `;
+
+    await pool.query(initSQL);
+    console.log('✓ Database schema ready');
+
+    // Ensure demo org and sheet exist
+    const orgs = await pool.query('SELECT id FROM organizations LIMIT 1');
+    let orgId = orgs.rows[0]?.id;
+
+    if (!orgId) {
+      const res = await pool.query('INSERT INTO organizations (name) VALUES ($1) RETURNING id', ['demo-org']);
+      orgId = res.rows[0].id;
+    }
+
     const sheets = await pool.query('SELECT id FROM sheets LIMIT 1');
     if (sheets.rows.length === 0) {
       console.log('Creating demo sheet...');
       const sheetId = uuidv4();
-      await pool.query(
-        'INSERT INTO sheets (id, name, org_id) VALUES ($1, $2, $3)',
-        [sheetId, 'Work Orders', 'demo-org']
-      );
+      await pool.query('INSERT INTO sheets (id, organization_id, name) VALUES ($1, $2, $3)', [sheetId, orgId, 'Work Orders']);
       const viewId = uuidv4();
-      await pool.query(
-        'INSERT INTO sheet_views (id, sheet_id, name, result_count) VALUES ($1, $2, $3, $4)',
-        [viewId, sheetId, 'All Work Orders', 0]
-      );
+      await pool.query('INSERT INTO sheet_views (id, sheet_id, name) VALUES ($1, $2, $3)', [viewId, sheetId, 'All Work Orders']);
       console.log('✓ Demo sheet created');
     }
   } catch (err) {
-    console.error('Failed to initialize demo sheet:', err);
+    console.error('Database initialization error:', err);
   }
 }
 
-await initializeDemoSheet();
+await initializeDatabase();
 
 // Track WebSocket connections for broadcasting
 const connections = new Map<string, any>();
